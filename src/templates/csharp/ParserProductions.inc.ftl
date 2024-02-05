@@ -3,15 +3,16 @@
 [#import "CommonUtils.inc.ftl" as CU]
 
 [#var nodeNumbering = 0]
+[#var exceptionNesting = 0]
 [#var NODE_USES_PARSER = settings.nodeUsesParser]
 [#var NODE_PREFIX = grammar.nodePrefix]
 [#var currentProduction]
-[#var topLevelExpansion] [#-- A "one-shot" indication that we are processing 
-                              an expansion immediately below the BNF production expansion, 
+[#var topLevelExpansion] [#-- A "one-shot" indication that we are processing
+                              an expansion immediately below the BNF production expansion,
                               ignoring an ExpansionSequence that might be there. This is
                               primarily, if not exclusively, for allowing JTB-compatible
-                              syntactic trees to be built. While seemingly silly (and perhaps could be done differently), 
-                              it is also a bit tricky, so treat it like the Holy Hand-grenade in that respect. 
+                              syntactic trees to be built. While seemingly silly (and perhaps could be done differently),
+                              it is also a bit tricky, so treat it like the Holy Hand-grenade in that respect.
                           --]
 [#var jtbNameMap = {
    "Terminal" : "nodeToken",
@@ -48,21 +49,20 @@
     [#set nodeFieldOrdinal = {}]
     [#set injectedFields = {}]
     [#set newVarIndex = 0 in CU]
-    [#-- Generate the method modifiers and header --] 
+    [#-- Generate the method modifiers and header --]
         ${production.leadingComments}
         // ${production.location}
-        ${globals.startProduction()}${globals.translateModifiers(production.accessModifier)} ${globals.translateType(production.returnType)} Parse${production.name}([#if production.parameterList?has_content]${globals.translateParameters(production.parameterList)}[/#if]) {
-            var prevProduction = _currentlyParsedProduction;
+        ${globals::startProduction()}${globals::translateModifiers(production.accessModifier)} ${globals::translateType(production.returnType)} Parse${production.name}([#if production.parameterList??]${globals::translateParameters(production.parameterList)}[/#if]) {
             _currentlyParsedProduction = "${production.name}";
             [#--${production.javaCode!}
             This is actually inserted further down because
-            we want the prologue java code block to be able to refer to 
+            we want the prologue java code block to be able to refer to
             CURRENT_NODE.
             --]
             [#set topLevelExpansion = false]
             ${BuildCode(production)}
         }
-        // end of Parse${production.name}${globals.endProduction()}
+        // end of Parse${production.name}${globals::endProduction()}
 
 [/#macro]
 
@@ -121,7 +121,7 @@
             iv = InvalidNode(self);
             [#-- OMITTED: iv.copyLocationInfo(skippedTokens.get(0));--]
             foreach (var tok in skippedTokens) {
-                iv.AddChild(tok);
+                iv.Add(tok);
                 [#-- OMITTED: iv.setEndOffset(tok.getEndOffset()); --]
             }
             PushNode(iv);
@@ -161,7 +161,7 @@ if (_pendingRecovery) {
     [#if expansion == currentProduction]
       [#-- Set this expansion as the current production and capture any Java code specified before the first expansion unit --]
       [#set production = currentProduction]
-      [#set javaCodePrologue = production.javaCode!] 
+      [#set javaCodePrologue = production.javaCode!]
     [/#if]
     [#if treeNodeBehavior??]
         [#if settings.treeBuildingEnabled]
@@ -170,16 +170,16 @@ if (_pendingRecovery) {
         [/#if]
     [/#if]
     [#if !buildingTreeNode && !canRecover]
-${globals.translateCodeBlock(javaCodePrologue, 1)}[#rt]
+${globals::translateCodeBlock(javaCodePrologue, 1)}[#rt]
         [#nested]
     [#else]
-        [#-- We need tree nodes and/or recovery code. --]      
+        [#-- We need tree nodes and/or recovery code. --]
         [#if buildingTreeNode]
             [#-- Build the tree node (part 1). --]
             [@buildTreeNode production treeNodeBehavior nodeVarName /]
         [/#if]
-        [#-- Any prologue code can refer to CURRENT_NODE at this point. --][#-- REVISIT: Is this needed anymore, since thisProduction is always the reference to CURRENT_NODE (jb)? --]
-${globals.translateCodeBlock(javaCodePrologue, 1)}
+        [#-- Any prologue code can refer to CURRENT_NODE at this point. --][#-- REVISIT: Is this needed anymore, since THIS_PRODUCTION is always the reference to CURRENT_NODE (jb)? --]
+${globals::translateCodeBlock(javaCodePrologue, 1)}
 ParseException ${parseExceptionVar} = null;
 var ${callStackSizeVar} = ParsingStack.Count;
 try {
@@ -187,8 +187,8 @@ try {
         [#-- Here is the "nut". --]
         [#nested]
 }
-catch (ParseException e) {
-    ${parseExceptionVar} = e;
+catch (ParseException ${exceptionVar()}) {
+    ${parseExceptionVar} = ${exceptionVar()};
         [#if !canRecover]
             [#if settings.faultTolerant]
     if (IsTolerant) _pendingRecovery = true;
@@ -215,7 +215,6 @@ finally {
     [#-- Build the tree node (part 2). --]
     [@buildTreeNodeEpilogue treeNodeBehavior nodeVarName parseExceptionVar /]
 [/#if]
-    _currentlyParsedProduction = prevProduction;
 }
 [/#if]
 [#-- // DBG < TreeBuildingAndRecovery --]
@@ -226,7 +225,7 @@ finally {
       [#-- Determine the name of the node field containing the reference to a synthetic syntax node --]
       [#var fieldName = nodeClass?uncap_first]
       [#var fieldOrdinal]
-      [#if jtbNameMap[nodeClass]??] 
+      [#if jtbNameMap[nodeClass]??]
          [#-- Allow for JTB-style syntactic node names (but exclude Token and <non-terminal> ). --]
          [#set fieldName = jtbNameMap[nodeClass]/]
       [/#if]
@@ -257,9 +256,9 @@ finally {
       ]
          [#if syntheticNodesEnabled && isProductionInstantiatingNode(expansion)]
             [#-- Assignment is explicitly provided and synthetic nodes are enabled --]
-            [#-- NOTE: An explicit assignment will take precedence over a synthetic JTB node. 
-               I.e., it will not create a field in the production node.  It WILL, however, 
-               use the syntactic node type for the natural assignment value, as seen below.  
+            [#-- NOTE: An explicit assignment will take precedence over a synthetic JTB node.
+               I.e., it will not create a field in the production node.  It WILL, however,
+               use the syntactic node type for the natural assignment value, as seen below.
             --]
             [#-- This expansion has an explicit assignment; check if we need to synthesize a definite node --]
             [#if nodeName?? && (
@@ -277,13 +276,13 @@ finally {
                [/#if]
                [#-- Make a new node to wrap the current expansion with the expansion's assignment. --]
                [#set treeNodeBehavior = {
-                                          'nodeName' : nodeName, 
-                                          'condition' : null, 
+                                          'nodeName' : nodeName,
+                                          'condition' : null,
                                           'gtNode' : false,
                                           'void' : false,
                                           'assignment' : expansion.assignment
                                        } /]
-               [#if expansion.assignment.propertyAssignment && !expansion.assignment.noAutoDefinition]
+               [#if expansion.assignment.propertyAssignment && expansion.assignment.declarationOf]
                   [#-- Inject the receiving property --]
                   ${injectDeclaration(nodeName, expansion.assignment.name, expansion.assignment)}
                [/#if]
@@ -294,13 +293,12 @@ finally {
             [#return null /]
          [/#if]
       [#elseif treeNodeBehavior?? &&
-               treeNodeBehavior.assignment?? &&
-               isProductionInstantiatingNode(expansion)]
+               treeNodeBehavior.assignment??]
          [#-- There is an explicit tree node annotation with assignment; make sure a property is injected if needed. --]
-         [#if !treeNodeBehavior.assignment.noAutoDefinition]
+         [#if treeNodeBehavior.assignment.declarationOf]
             ${injectDeclaration(treeNodeBehavior.nodeName, treeNodeBehavior.assignment.name, treeNodeBehavior.assignment)}
          [/#if]
-      [#elseif jtbParseTree && expansion.parent.simpleName != "ExpansionWithParentheses" && isProductionInstantiatingNode(expansion)]
+      [#elseif jtbParseTree && expansion.parent.simpleName != "ExpansionWithParentheses" && isProductionInstantiatingNode(currentProduction)]
          [#-- No in-line definite node annotation; synthesize a parser node for the expansion type being built, if needed. --]
          [#if nodeName??]
             [#-- Determine the node name depending on syntactic type --]
@@ -316,26 +314,26 @@ finally {
                [#set initialShorthand = " > "]
             [/#if]
             [#if nodeFieldName??]
-               [#-- Provide an assignment to save the syntactic node in a 
+               [#-- Provide an assignment to save the syntactic node in a
                synthetic field injected into the actual production node per JTB behavior. --]
                [#set treeNodeBehavior = {
-                                    'nodeName' : nodeName!"nemo", 
-                                    'condition' : condition, 
-                                    'gtNode' : gtNode, 
+                                    'nodeName' : nodeName!"nemo",
+                                    'condition' : condition,
+                                    'gtNode' : gtNode,
                                     'initialShorthand' : initialShorthand,
                                     'void' : false,
-                                    'assignment' : 
-                                       { 'name' : "thisProduction." + nodeFieldName, 
-                                          'propertyAssignment' : false, 
-                                          'noAutoDefinition' : false,
+                                    'assignment' :
+                                       { 'name' : globals::translateIdentifier("THIS_PRODUCTION") + "." + nodeFieldName,
+                                          'propertyAssignment' : false,
+                                          'declarationOf' : true,
                                           'existenceOf' : false }
                                  } /]
             [#else]
                [#-- Just provide the syntactic node with no LHS needed --]
                [#set treeNodeBehavior = {
-                                          'nodeName' : nodeName!"nemo",  
-                                          'condition' : condition, 
-                                          'gtNode' : gtNode, 
+                                          'nodeName' : nodeName!"nemo",
+                                          'condition' : condition,
+                                          'gtNode' : gtNode,
                                           'initialShorthand' : initialShorthand,
                                           'void' : false,
                                           'assignment' : null
@@ -345,12 +343,12 @@ finally {
       [/#if]
    [/#if]
    [#if !treeNodeBehavior??]
-      [#-- There is still no express treeNodeBehavior determined; supply the default if this is a BNF production node --]  
-      [#if isProduction && !settings.nodeDefaultVoid 
-                        && !grammar.nodeIsInterface(expansion.name)
-                        && !grammar.nodeIsAbstract(expansion.name)]
+      [#-- There is still no express treeNodeBehavior determined; supply the default if this is a BNF production node --]
+      [#if isProduction && !settings.nodeDefaultVoid
+                        && !grammar::nodeIsInterface(expansion.name)
+                        && !grammar::nodeIsAbstract(expansion.name)]
          [#if settings.smartNodeCreation]
-            [#set treeNodeBehavior = {"nodeName" : expansion.name!"nemo", "condition" : "1", "gtNode" : true, "void" :false, "initialShorthand" : ">"}]
+            [#set treeNodeBehavior = {"nodeName" : expansion.name!"nemo", "condition" : "1", "gtNode" : true, "void" :false, "initialShorthand" : " > "}]
          [#else]
             [#set treeNodeBehavior = {"nodeName" : expansion.name!"nemo", "condition" : null, "gtNode" : false, "void" : false}]
          [/#if]
@@ -381,7 +379,7 @@ finally {
          [#-- the () will be skipped and the nested expansion processed, so built the tree node for it rather than this --]
          [#var innerExpansion = expansion.nestedExpansion/]
          [#return syntacticNodeName(innerExpansion)/]
-      [#elseif classname = "ExpansionSequence" && 
+      [#elseif classname = "ExpansionSequence" &&
                expansion.parent?? &&
                (
                   expansion.parent.simpleName == "ExpansionWithParentheses" ||
@@ -397,27 +395,35 @@ finally {
       [#return null/]
 [/#function]
 
-[#function isProductionInstantiatingNode expansion] 
-   [#if expansion.containingProduction.treeNodeBehavior?? && 
-        expansion.containingProduction.treeNodeBehavior.neverInstantiated!false]
-      [#return false/]
-   [/#if]
-   [#return true/]
-[/#function]
+#function isProductionInstantiatingNode expansion
+   #return !expansion.containingProduction.treeNodeBehavior?? ||
+           !expansion.containingProduction.treeNodeBehavior.neverInstantiated!true
+/#function
 
-[#function nodeVar isProduction]
-   [#var nodeVarName]
-   [#if isProduction]
-      [#set nodeVarName = "thisProduction"] [#-- [JB] maybe should be "CURRENT_PRODUCTION" or "THIS_PRODUCTION" to match "CURRENT_NODE"? --]
-   [#else]
-      [#set nodeNumbering = nodeNumbering +1]
-      [#set nodeVarName = currentProduction.name + nodeNumbering] 
-   [/#if]
-   [#return nodeVarName/]
-[/#function]
+#function nodeVar isProduction
+   #var nodeVarName
+   #if isProduction
+      #set nodeVarName = globals::translateIdentifier("THIS_PRODUCTION")
+   #else
+      #set nodeNumbering = nodeNumbering +1
+      #set nodeVarName = currentProduction.name + nodeNumbering
+   /#if
+   #return nodeVarName
+/#function
+
+#function exceptionVar(isNesting)
+   #var exceptionVarName = "e"
+   #if exceptionNesting > 0
+      #set exceptionVarName = "e" + exceptionNesting
+   /#if
+   #if isNesting!false
+      #set exceptionNesting = exceptionNesting+1
+   /#if
+   #return exceptionVarName
+/#function
 
 [#macro buildTreeNode production treeNodeBehavior nodeVarName] [#-- FIXME: production is not used here --]
-   ${globals.pushNodeVariableName(nodeVarName)!}
+   #exec globals::pushNodeVariableName(nodeVarName)
    [@createNode nodeClassName(treeNodeBehavior) nodeVarName /]
 [/#macro]
 
@@ -443,7 +449,7 @@ if (BuildTree) {
             ${LHS?replace("@", "null")};
          }
    [#else]
-         CloseNodeScope(${nodeVarName}, ${closeCondition(treeNodeBehavior)}); 
+         CloseNodeScope(${nodeVarName}, ${closeCondition(treeNodeBehavior)});
    [/#if]
    [#list grammar.closeNodeHooksByClass[nodeClassName(treeNodeBehavior)]! as hook]
          ${hook}(${nodeVarName});
@@ -457,13 +463,13 @@ if (BuildTree) {
    [/#if]
       }
    }
-   ${globals.popNodeVariableName()!}
+   #exec globals::popNodeVariableName()
 [/#macro]
 
-[#function getRhsAssignmentPattern assignment] 
+[#function getRhsAssignmentPattern assignment]
    [#if assignment.existenceOf!false]
-      [#-- replace "@" with "((@ != null) ? true : false)" --]
-      [#return "((@ != null) ? true : false)" /]
+      [#-- replace "@" with "(((@) != null) ? true : false)" --]
+      [#return "(((@) != null) ? true : false)" /]
    [#elseif assignment.stringOf!false]
       [#-- replace "@" with the string value of the node --]
       [#return "Convert.ToString(@).Trim()"]
@@ -477,16 +483,16 @@ if (BuildTree) {
       [#if assignment.propertyAssignment]
          [#-- This is the assignment of the current node's effective value to a property of the production node --]
          [#set lhsName = lhsName?cap_first]
-         [#if lhsType?? && !assignment.noAutoDefinition]
+         [#if lhsType?? && assignment.declarationOf]
             [#-- This is a declaration assignment; inject required property --]
             ${injectDeclaration(lhsType, assignment.name, assignment)}
          [/#if]
          [#if assignment.addTo!false]
             [#-- This is the addition of the current node as an element of the specified list property --]
-            [#return "thisProduction." + lhsName + ".Add(" + getRhsAssignmentPattern(assignment) + ")" /]
+            [#return globals::translateIdentifier("THIS_PRODUCTION") + "." + lhsName + ".Add(" + getRhsAssignmentPattern(assignment) + ")" /]
          [#else]
             [#-- This is an assignment of the current node's effective value to the specified property of the production node --]
-            [#return "thisProduction." + lhsName + " = " + getRhsAssignmentPattern(assignment) /]
+            [#return globals::translateIdentifier("THIS_PRODUCTION") + "." + lhsName + " = " + getRhsAssignmentPattern(assignment) /]
          [/#if]
       [#elseif assignment.namedAssignment!false]
          [#if assignment.addTo]
@@ -505,13 +511,17 @@ if (BuildTree) {
 [/#function]
 
 [#function injectDeclaration typeName, fieldName, assignment]
+    #if !isProductionInstantiatingNode(currentProduction)
+      #exec grammar.errors::addWarning(currentProduction, "Attempt to inject property or field declaration " + fieldName + " into an un-instantiated production node " + currentProduction.name + "; the assignment will be ignored.")
+      #return ""
+    /#if
    [#var modifier = "public"]
    [#var type = typeName]
    [#var field = fieldName]
    [#if assignment?? && assignment.propertyAssignment]
       [#set modifier = "@Property"]
    [/#if]
-   [#if assignment?? && assignment.existenceOf] 
+   [#if assignment?? && assignment.existenceOf]
       [#set type = "bool"]
    [#elseif assignment?? && assignment.stringOf]
       [#set type = "string"]
@@ -519,9 +529,9 @@ if (BuildTree) {
       [#set type = "List<Node>"]
       [#set field = field + " = new ArrayList<Node>()"]
    [/#if]
-   [#if (injectedFields[field])?is_null]
-      [#set injectedFields = injectedFields + {field : type}]
-      ${grammar.addFieldInjection(currentProduction.nodeName, modifier, type, field)}
+   [#if !(injectedFields[field])??]
+      #set injectedFields = injectedFields + {field : type}
+      #exec grammar::addFieldInjection(currentProduction.nodeName, modifier, type, field)
    [/#if]
    [#return "" /]
 [/#function]
@@ -529,10 +539,10 @@ if (BuildTree) {
 [#function closeCondition treeNodeBehavior]
    [#var cc = "true"]
    [#if treeNodeBehavior??]
-      [#if treeNodeBehavior.condition?has_content]
+      [#if treeNodeBehavior.condition??]
          [#set cc = treeNodeBehavior.condition]
          [#if treeNodeBehavior.gtNode]
-            [#set cc = "NodeArity " + treeNodeBehavior.initialShorthand  + cc]
+            [#set cc = "NodeArity" + treeNodeBehavior.initialShorthand  + cc]
          [/#if]
       [/#if]
    [/#if]
@@ -551,7 +561,7 @@ if (BuildTree) {
    [#var prevLexicalStateVar = CU.newVarName("previousLexicalState")]
    [#-- take care of the non-tree-building classes --]
    [#if classname = "CodeBlock"]
-${globals.translateCodeBlock(expansion, 1)}
+${globals::translateCodeBlock(expansion, 1)}
 [#-- FIXME: for some reason a CodeBlock consisting only of a "// ..." line throws a ParseException on previous template line (for CSharp, not Java). --]
    [#-- OMITTED: [#elseif classname = "UncacheTokens"]
          uncacheTokens(); --]
@@ -571,7 +581,6 @@ ${globals.translateCodeBlock(expansion, 1)}
          [#if classname = "BNFProduction"]
             [#-- The tree node having been built, now build the actual top-level expansion --]
             [#set topLevelExpansion = true]
-            // top-level expansion ${expansion.nestedExpansion.simpleName}
             [@BuildCode expansion.nestedExpansion/]
          [#else]
             [#-- take care of terminal and non-terminal expansions; they cannot contain child expansions --]
@@ -617,7 +626,7 @@ Fail("Failure: " + ${fail.exp});
 Fail("Failure");
       [/#if]
     [#else]
-${globals.translateCodeBlock(fail.code, 1)}
+${globals::translateCodeBlock(fail.code, 1)}
     [/#if]
 [#-- // DBG < BuildCodeFailure --]
 [/#macro]
@@ -625,11 +634,11 @@ ${globals.translateCodeBlock(fail.code, 1)}
 [#macro BuildAssertionCode assertion]
 [#var optionalPart = ""]
 [#if assertion.messageExpression??]
-  [#set optionalPart = " + " + globals.translateExpression(assertion.messageExpression)]
+  [#set optionalPart = " + " + globals::translateExpression(assertion.messageExpression)]
 [/#if]
    [#var assertionMessage = "Assertion at: " + assertion.location?j_string + " failed. "]
    [#if assertion.assertionExpression??]
-if (!(${globals.translateExpression(assertion.assertionExpression)})) {
+if (!(${globals::translateExpression(assertion.assertionExpression)})) {
     Fail("${assertionMessage}"${optionalPart});
 }
    [/#if]
@@ -655,52 +664,53 @@ ActivateTokenTypes(
 [/#macro]
 
 [#macro BuildCodeTryBlock tryblock]
-// DBG > BuildCodeTryBlock
+#-- // DBG > BuildCodeTryBlock --
 try:
 ${BuildCode(tryblock.nestedExpansion)}
    [#list tryblock.catchBlocks as catchBlock]
 ${catchBlock}
    [/#list]
 ${tryblock.finallyBlock!}
-// DBG < BuildCodeTryBlock
+#-- // DBG < BuildCodeTryBlock --
 [/#macro]
 
 [#macro BuildCodeAttemptBlock attemptBlock]
-// DBG > BuildCodeAttemptBlock
+#-- // DBG > BuildCodeAttemptBlock --
 try {
     StashParseState();
 ${BuildCode(attemptBlock.nestedExpansion)}
     PopParseState();
 }
-catch (ParseException) {
+#var pe = exceptionVar(true)
+catch (ParseException ${pe}) {
     RestoreStashedParseState();
 ${BuildCode(attemptBlock.recoveryExpansion)}
+#set exceptionNesting = exceptionNesting - 1
 }
-// DBG < BuildCodeAttemptBlock
+#-- // DBG < BuildCodeAttemptBlock --
 [/#macro]
 
 [#-- The following macros build expansions that might build tree nodes (could be called "syntactic" nodes). --]
 
 [#macro BuildCodeNonTerminal nonterminal]
 [#-- // DBG > BuildCodeNonTerminal ${nonterminal.production.name} --]
-   [#var production = nonterminal.production]
 PushOntoCallStack("${nonterminal.containingProduction.name}", "${nonterminal.inputSource?j_string}", ${nonterminal.beginLine}, ${nonterminal.beginColumn});
-   [#var followSet = nonterminal.followSet]
-   [#if !followSet.incomplete]
-      [#if !nonterminal.beforeLexicalStateSwitch]
+#if settings.faultTolerant
+  #var followSet = nonterminal.followSet
+  #if !followSet.incomplete
+    #if !nonterminal.beforeLexicalStateSwitch
 OuterFollowSet = ${nonterminal.followSetVarName};
-      [#else]
+    #else
 OuterFollowSet = null;
-      [/#if]
-   [#else]
-     [#if !followSet.isEmpty()]
+    /#if
+  #elseif !followSet.empty
 if (OuterFollowSet != null) {
     var newFollowSet = new HashSet<TokenType>(${nonterminal.followSetVarName});
     newFollowSet.UnionWith(OuterFollowSet);
     OuterFollowSet = newFollowSet;
 }
-     [/#if]
-   [/#if]
+  /#if
+/#if
 try {
     [@AcceptNonTerminal nonterminal /]
 }
@@ -714,16 +724,17 @@ finally {
    [#var lhsClassName = nonterminal.production.nodeName]
    [#var expressedLHS = getLhsPattern(nonterminal.assignment, lhsClassName)]
    [#var impliedLHS = "@"]
-   [#if jtbParseTree && isProductionInstantiatingNode(nonterminal.nestedExpansion) && topLevelExpansion]
-      [#set impliedLHS = "thisProduction." + imputedJtbFieldName(nonterminal.production.nodeName) + " = @"]
-   [/#if]
+   #if jtbParseTree && isProductionInstantiatingNode(nonterminal.production) && topLevelExpansion
+      #var newName = imputedJtbFieldName(nonterminal.production.nodeName)
+      #set impliedLHS = globals::translateIdentifier("THIS_PRODUCTION") + "." + newName + " = @"
+   /#if
    [#-- Accept the non-terminal expansion --]
    [#if nonterminal.production.returnType != "void" && expressedLHS != "@" && !nonterminal.assignment.namedAssignment && !nonterminal.assignment.propertyAssignment]
       [#-- Not a void production, so accept and clear the expressedLHS, it has already been applied. --]
-      ${expressedLHS?replace("@", "Parse" + nonterminal.name + "(" + globals.translateNonterminalArgs(nonterminal.args)! + ")")};
+      ${expressedLHS?replace("@", "Parse" + nonterminal.name + "(" + globals::translateNonterminalArgs(nonterminal.args)! + ")")};
       [#set expressedLHS = "@"]
    [#else]
-      Parse${nonterminal.name}(${globals.translateNonterminalArgs(nonterminal.args)!});
+      Parse${nonterminal.name}(${globals::translateNonterminalArgs(nonterminal.args)!});
    [/#if]
    [#if expressedLHS != "@" || impliedLHS != "@"]
       [#if nonterminal.assignment?? && (nonterminal.assignment.addTo!false || nonterminal.assignment.namedAssignment)]
@@ -742,27 +753,27 @@ finally {
             ${expressedLHS?replace("@", impliedLHS?replace("@", "null"))};
          }
       [/#if]
-   [/#if] 
+   [/#if]
 [/#macro]
 
 [#macro BuildCodeTerminal terminal]
-   [#var LHS = getLhsPattern(terminal.assignment, "Token"), regexp=terminal.regexp]
+#var LHS = getLhsPattern(terminal.assignment, "Token"), regexp=terminal.regexp
 [#-- // DBG > BuildCodeRegexp --]
-   [#if !settings.faultTolerant]
+#if !settings.faultTolerant
 ${LHS?replace("@", "ConsumeToken(" + CU.TT + regexp.label + ")")};
-   [#else]
-       [#var tolerant = terminal.tolerantParsing?string("true", "false")]
-       [#var followSetVarName = terminal.followSetVarName]
-       [#if terminal.followSet.incomplete]
-         [#set followSetVarName = "followSet" + CU.newID()]
+#else
+  #var tolerant = terminal.tolerantParsing?string("true", "false")
+  #var followSetVarName = terminal.followSetVarName
+  #if terminal.followSet.incomplete
+    #set followSetVarName = "followSet" + CU.newID()
 HashSet<TokenType> ${followSetVarName} = null;
 if (OuterFollowSet != null) {
     ${followSetVarName} = ${terminal.followSetVarName}.Clone();
     ${followSetVarName}.AddAll(OuterFollowSet);
 }
-       [/#if]
+  /#if
 ${LHS?replace("@", "ConsumeToken(" + CU.TT + regexp.label + ", " + tolerant + ", " + followSetVarName + ")")};
-   [/#if]
+/#if
 [#-- // DBG < BuildCodeRegexp --]
 [/#macro]
 
@@ -849,7 +860,6 @@ catch (ParseException pe) {
    [#-- OMITTED:
       [#if expansion.enteredUnconditionally]
         {
-         // choice for ${globals.currentNodeVariableName} index ${expansion_index}
          ${BuildCode(expansion)}
          [#if jtbParseTree && isProductionInstantiatingNode(expansion)]
             ${globals.currentNodeVariableName}.setChoice(${expansion_index});
@@ -857,9 +867,9 @@ catch (ParseException pe) {
         }
         [#if expansion_has_next]
             [#var nextExpansion = choice[expansion_index+1]]
-            // Warning: choice at ${nextExpansion.location} is is ignored because the 
+            // Warning: choice at ${nextExpansion.location} is is ignored because the
             // choice at ${expansion.location} is entered unconditionally and we jump
-            // out of the loop.. 
+            // out of the loop..
         [/#if]
          [#return/]
       [/#if]
@@ -912,12 +922,12 @@ ${BuildCode(subexp)}
 
 [#-- Generates code for when we need a scanahead --]
 [#macro ScanAheadCondition expansion]
-[#if expansion.lookahead?? && expansion.lookahead.assignment??](${expansion.lookahead.assignment.name} = [/#if][#if expansion.hasSemanticLookahead && !expansion.lookahead.semanticLookaheadNested](${globals.translateExpression(expansion.semanticLookahead)}) && [/#if]${expansion.predicateMethodName}()[#if expansion.lookahead?? && expansion.lookahead.assignment??])[/#if]
+[#if expansion.lookahead?? && expansion.lookahead.assignment??](${expansion.lookahead.assignment.name} = [/#if][#if expansion.hasSemanticLookahead && !expansion.lookahead.semanticLookaheadNested](${globals::translateExpression(expansion.semanticLookahead)}) && [/#if]${expansion.predicateMethodName}()[#if expansion.lookahead?? && expansion.lookahead.assignment??])[/#if]
 [/#macro]
 
 
 [#-- Generates code for when we don't need any scanahead routine --]
 [#macro SingleTokenCondition expansion]
-   [#if expansion.hasSemanticLookahead](${globals.translateExpression(expansion.semanticLookahead)}) && [/#if]
+   [#if expansion.hasSemanticLookahead](${globals::translateExpression(expansion.semanticLookahead)}) && [/#if]
    [#if expansion.firstSet.tokenNames?size = 0 || expansion.lookaheadAmount ==0 || expansion.minimumSize=0]true[#elseif expansion.firstSet.tokenNames?size < 5][#list expansion.firstSet.tokenNames as name](NextTokenType == TokenType.${name})[#if name_has_next] || [/#if][/#list][#else](${expansion.firstSetVarName}.Contains(NextTokenType))[/#if]
 [/#macro]

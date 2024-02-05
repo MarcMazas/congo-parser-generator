@@ -10,7 +10,6 @@ import java.util.*;
 import org.congocc.app.AppSettings;
 import org.congocc.app.Errors;
 import org.congocc.core.Grammar;
-import org.congocc.core.LexerData;
 import org.congocc.core.RegularExpression;
 import org.congocc.codegen.java.*;
 import org.congocc.codegen.csharp.CSharpFormatter;
@@ -25,7 +24,7 @@ public class FilesGenerator {
 
     private final Configuration fmConfig = new freemarker.template.Configuration();
     private final Grammar grammar;
-    private final LexerData lexerData;
+    // private final LexerData lexerData;
     private final AppSettings appSettings;
     private final Errors errors;
     private final CodeInjector codeInjector;
@@ -60,7 +59,7 @@ public class FilesGenerator {
         //fmConfig.setObjectWrapper(new BeansWrapper());
         fmConfig.setNumberFormat("computer");
         fmConfig.setArithmeticEngine(freemarker.core.ArithmeticEngine.CONSERVATIVE_ENGINE);
-        fmConfig.setStrictVariableDefinition(true);
+        //fmConfig.setStrictVariableDefinition(true);
         fmConfig.setSharedVariable("grammar", grammar);
         fmConfig.setSharedVariable("globals", grammar.getTemplateGlobals());
         fmConfig.setSharedVariable("settings", grammar.getAppSettings());
@@ -70,9 +69,9 @@ public class FilesGenerator {
            fmConfig.addAutoImport("CU", "CommonUtils.java.ftl");
     }
 
-    public FilesGenerator(Grammar grammar, String codeLang) {
+    public FilesGenerator(Grammar grammar) {
         this.grammar = grammar;
-        this.lexerData = grammar.getLexerData();
+        // this.lexerData = grammar.getLexerData();
         this.appSettings = grammar.getAppSettings();
         this.codeLang = appSettings.getCodeLang();
         this.errors = grammar.getErrors();
@@ -204,7 +203,7 @@ public class FilesGenerator {
         String key = appSettings.getNodePackage() + "." + nodeName;
         Set<ObjectType> permitsList = codeInjector.getPermitsList(key);
         if (permitsList == null) {
-            dataModel.put("permitsList", new ArrayList<Object>());
+            dataModel.put("permitsList", new ArrayList<>());
         } else {
            dataModel.put("permitsList", codeInjector.getPermitsList(key));
         }
@@ -384,7 +383,7 @@ public class FilesGenerator {
         if (appSettings.getBaseNodeClassName().indexOf('.') == -1) {
             files.put(appSettings.getBaseNodeClassName(), getOutputFile(appSettings.getBaseNodeClassName()));
         }
-        for (RegularExpression re : lexerData.getOrderedNamedTokens()) {
+        for (RegularExpression re : grammar.getLexerData().getOrderedNamedTokens()) {
             if (re.isPrivate()) continue;
             String tokenClassName = re.getGeneratedClassName();
             if (tokenClassName.indexOf('.') != -1) continue;

@@ -72,11 +72,11 @@
         n.end_offset = self.last_consumed_token.end_offset
         self.current_node_scope.close()
         nodes = self.pop_nodes(num)
-        if nodes :
+        if nodes:
             n.begin_offset = nodes[-1].begin_offset
             n.end_offset = nodes[0].end_offset
         for child in reversed(nodes):
-            n.add_child(child)
+            n.add(child)
         n.close()
         self.push_node(n)
 [#list grammar.closeNodeScopeHooks as hook]
@@ -105,7 +105,7 @@
             a = self.node_arity
             self.current_node_scope.close()
             nodes = self.pop_nodes(a)
-            if nodes :
+            if nodes:
                 n.begin_offset = nodes[-1].begin_offset
                 n.end_offset = nodes[0].end_offset
             for child in reversed(nodes):
@@ -114,9 +114,9 @@
                     while tok.previous_cached_token and tok.previous_cached_token.is_unparsed:
                         tok = tok.previous_cached_token
                     while tok.is_unparsed:
-                        n.add_child(tok)
+                        n.add(tok)
                         tok = tok.next_cached_token
-                n.add_child(child)
+                n.add(child)
             n.close()
             self.push_node(n)
 [#list grammar.closeNodeScopeHooks as hook]
@@ -126,4 +126,4 @@
             self.current_node_scope.close()
             return False
         return True
-        
+

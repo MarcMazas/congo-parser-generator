@@ -15,7 +15,7 @@ public class CSharpTranslator extends Translator {
         isTyped = true;
     }
 
-    @Override public String translateOperator(String operator) {
+    public String translateOperator(String operator) {
         return operator;
     }
 
@@ -33,7 +33,7 @@ public class CSharpTranslator extends Translator {
         return result;
     }
 
-    private static Set<String> propertyIdentifiers = makeSet("image", "lastConsumedToken");
+    private static final Set<String> propertyIdentifiers = makeSet("image", "lastConsumedToken");
 
     @Override public String translateIdentifier(String ident, TranslationContext kind) {
         // TODO proper method name translation
@@ -63,28 +63,32 @@ public class CSharpTranslator extends Translator {
         else if (ident.equals("isUnparsed")) {
             result = "IsUnparsed";
         }
-        else if (ident.equals("LEXER_CLASS")) {
+        else if (ident.equals("LEXER_CLASS") || ident.equals(appSettings.getLexerClassName())) {
             result = "Lexer";
         }
-        else if (ident.equals("PARSER_CLASS")) {
+        else if (ident.equals("PARSER_CLASS") || ident.equals(appSettings.getParserClassName())) {
             result = "Parser";
         }
-        else if (ident.equals("BASE_TOKEN_CLASS")) {
+        else if (ident.equals("THIS_PRODUCTION")) {
+            result = "thisProduction";
+        }
+        else if (ident.equals("BASE_TOKEN_CLASS") || ident.equals(appSettings.getBaseTokenClassName())) {
             result = "Token";
         }
         else if (ident.startsWith("NODE_PACKAGE.")) {
             result = ident.substring(13);
         }
+        else if (ident.startsWith(appSettings.getNodePackage().concat("."))) {
+            int prefixLength = appSettings.getNodePackage().length() + 1;
+            result = ident.substring(prefixLength);
+        }
         else if ((kind != TranslationContext.VARIABLE || propertyIdentifiers.contains(ident)) && kind != TranslationContext.PARAMETER && Character.isLowerCase(ident.charAt(0)) && !isSpecialPrefix(ident)) {
             result = Character.toUpperCase(ident.charAt(0)) + ident.substring(1);
         }
-//        else if (kind == TranslationContext.VARIABLE && ident.equals("image")) {
-//            result = "Image";
-//        }
         return result;
     }
 
-    @Override public String translateGetter(String getterName) {
+    public String translateGetter(String getterName) {
         if (getterName.startsWith("is")) {
             return translateIdentifier(getterName, TranslationContext.METHOD);
         }
@@ -193,7 +197,8 @@ public class CSharpTranslator extends Translator {
             rendered = false;
         }
         else {
-            throw new UnsupportedOperationException();
+            String s = String.format("Cannot render receiver %s", getSimpleName(expr));
+            throw new UnsupportedOperationException(s);
         }
         return rendered;
     }
@@ -215,8 +220,9 @@ public class CSharpTranslator extends Translator {
         }
     }
 
-    private static Set<String> propertyNames = makeSet("getImage", "getType", "getBeginLine", "getBeginColumn",
-                                                       "getEndLine", "getEndColumn");
+    private static final Set<String> propertyNames = makeSet("getImage", "getType", "getBeginLine", "getBeginColumn",
+                                                       "getEndLine", "getEndColumn", "getBeginOffset", "getEndOffset",
+                                                        "getLocation");
 
     @Override protected void translateInvocation(ASTInvocation expr, StringBuilder result) {
         String methodName = expr.getMethodName();
@@ -269,7 +275,8 @@ public class CSharpTranslator extends Translator {
             }
             result.append("PreviousCachedToken");
         }
-        else if (methodName.equals("get") && (nargs == 1)) {
+        else if (methodName.equals("get") && (nargs == 1) && !(receiver instanceof ASTPrimaryExpression)) {
+            // get(X) -> Get(x), but a.get(x) -> a[x]
             renderReceiver(receiver, result);
             result.append('[');
             internalTranslateExpression(firstArg, TranslationContext.UNKNOWN, result);
@@ -291,6 +298,10 @@ public class CSharpTranslator extends Translator {
         else if (methodName.equals("isUnparsed") && (nargs == 0)) {
             renderReceiver(receiver, result);
             result.append(".IsUnparsed");
+        }
+        else if (methodName.equals("getSimpleName") && (nargs == 0) && belongsToClass(expr)) {
+            renderReceiver(receiver, result);
+            result.append(".Name");
         }
         else if (methodName.equals("setUnparsed") && (nargs == 1)) {
             renderReceiver(receiver, result);
@@ -343,6 +354,9 @@ public class CSharpTranslator extends Translator {
                     result.append('.');
                 }
             }
+            if (methodName.equals("getClass")) {
+                methodName = "GetType";
+            }
             String ident = translateIdentifier(methodName, TranslationContext.METHOD);
             if (ident.equals("DirectiveLine")) {
                 // FIXME hard-coding for parser method names
@@ -389,6 +403,21 @@ public class CSharpTranslator extends Translator {
                 break;
             case "PARSER_CLASS":
                 result = "Parser";
+                break;
+            default:
+                if (name.equals(appSettings.getLexerClassName())) {
+                    result = "Lexer";
+                }
+                else if (name.equals(appSettings.getParserClassName())) {
+                    result = "Parser";
+                }
+                else if (name.equals(appSettings.getBaseTokenClassName())) {
+                    result = "Token";
+                }
+                else if (name.startsWith(appSettings.getNodePackage().concat("."))) {
+                    int prefixLength = appSettings.getNodePackage().length() + 1;
+                    result = name.substring(prefixLength);
+                }
                 break;
         }
         return result;
@@ -440,7 +469,8 @@ public class CSharpTranslator extends Translator {
             mods.remove("static");
         }
         if (mods.size() > 0) {
-            throw new UnsupportedOperationException();
+            String s = String.format("Unable to translate modifier %s", String.join(", ", mods));
+            throw new UnsupportedOperationException(s);
         }
         for (String mod: translated_mods) {
             result.append(mod);
@@ -460,6 +490,11 @@ public class CSharpTranslator extends Translator {
         }
  */
         return false;
+    }
+
+    protected void closeBrace(int indent, StringBuilder result) {
+        addIndent(indent, result);
+        result.append("}\n");
     }
 
     @Override protected void internalTranslateStatement(ASTStatement stmt, int indent, StringBuilder result) {
@@ -488,8 +523,7 @@ public class CSharpTranslator extends Translator {
             }
             if (isInitializer) {
                 indent -= 4;
-                addIndent(indent, result);
-                result.append("}\n");
+                closeBrace(indent, result);
             }
         }
         else if (stmt instanceof ASTVariableOrFieldDeclaration) {
@@ -551,14 +585,21 @@ public class CSharpTranslator extends Translator {
             result.append(") {\n");
             internalTranslateStatement(s.getThenStmts(), indent + 4, result);
             if (s.getElseStmts() != null) {
-                addIndent(indent, result);
-                result.append("}\n");
+                closeBrace(indent, result);
                 addIndent(indent, result);
                 result.append("else {\n");
                 internalTranslateStatement(s.getElseStmts(), indent + 4, result);
             }
-            addIndent(indent, result);
-            result.append("}\n");
+            closeBrace(indent, result);
+        }
+        else if (stmt instanceof ASTWhileStatement) {
+            ASTWhileStatement s = (ASTWhileStatement) stmt;
+
+            result.append("while (");
+            internalTranslateExpression(s.getCondition(), TranslationContext.UNKNOWN, result);
+            result.append(") {\n");
+            internalTranslateStatement(s.getStatements(), indent + 4, result);
+            closeBrace(indent, result);
         }
         else if (stmt instanceof ASTForStatement) {
             ASTForStatement s = (ASTForStatement) stmt;
@@ -583,7 +624,11 @@ public class CSharpTranslator extends Translator {
                 for (int i = 0; i < n; i++) {
                     ASTExpression name = names.get(i);
                     ASTExpression initializer = initializers.get(i);
-                    if (initializer != null) {
+                    if (initializer == null) {
+                        String msg = String.format("Unexpected null initializer for %s", getSimpleName(name));
+                        throw new UnsupportedOperationException(msg);
+                    }
+                    else {
                         translateType(decl.getTypeExpression(), result);
                         result.append(' ');
                         internalTranslateExpression(name, TranslationContext.UNKNOWN, result);
@@ -592,9 +637,6 @@ public class CSharpTranslator extends Translator {
                         if (i < (n - 1)) {
                             result.append("; ");
                         }
-                    }
-                    else {
-                        throw new UnsupportedOperationException();
                     }
                 }
                 result.append(";\n");
@@ -609,8 +651,7 @@ public class CSharpTranslator extends Translator {
                     result.append(";\n");
                 }
             }
-            addIndent(indent, result);
-            result.append("}\n");
+            closeBrace(indent, result);
         }
         else if (stmt instanceof ASTSwitchStatement) {
             ASTSwitchStatement s = (ASTSwitchStatement) stmt;
@@ -651,8 +692,7 @@ public class CSharpTranslator extends Translator {
                     result.append("break;\n");
                 }
             }
-            addIndent(indent, result);
-            result.append("}\n");
+            closeBrace(indent, result);
         }
         else if (stmt instanceof ASTMethodDeclaration) {
             ASTMethodDeclaration decl = (ASTMethodDeclaration) stmt;
@@ -731,15 +771,11 @@ public class CSharpTranslator extends Translator {
                 result.append(");\n");
             }
         }
-        else if (stmt instanceof ASTContinueStatement) {
-            result.append("continue;\n");
-        }
         else if (stmt instanceof ASTTryStatement) {
             ASTTryStatement tryStmt = (ASTTryStatement) stmt;
             result.append("try {\n");
             internalTranslateStatement(tryStmt.getBlock(), indent + 4, result);
-            addIndent(indent, result);
-            result.append("}\n");
+            closeBrace(indent, result);
             List<ASTExceptionInfo> catchBlocks = tryStmt.getCatchBlocks();
             if (catchBlocks != null) {
                 for (ASTExceptionInfo cb: catchBlocks) {
@@ -773,8 +809,7 @@ public class CSharpTranslator extends Translator {
                     }
                     result.append(" {\n");
                     internalTranslateStatement(cb.getBlock(), indent + 4, result);
-                    addIndent(indent, result);
-                    result.append("}\n");
+                    closeBrace(indent, result);
                 }
             }
             ASTStatement fb = tryStmt.getFinallyBlock();
@@ -782,8 +817,7 @@ public class CSharpTranslator extends Translator {
                 addIndent(indent, result);
                 result.append("finally {\n");
                 internalTranslateStatement(fb, indent + 4, result);
-                addIndent(indent, result);
-                result.append("}\n");
+                closeBrace(indent, result);
             }
         }
         else if (stmt instanceof ASTEnumDeclaration) {
@@ -803,8 +837,7 @@ public class CSharpTranslator extends Translator {
                     }
                     result.append('\n');
                 }
-                addIndent(indent, result);
-                result.append("}\n");
+                closeBrace(indent, result);
             }
         }
         else if (stmt instanceof ASTClassDeclaration) {
@@ -818,14 +851,14 @@ public class CSharpTranslator extends Translator {
                     internalTranslateStatement(decl, indent + 4, result);
                 }
             }
-            addIndent(indent, result);
-            result.append("}\n");
+            closeBrace(indent, result);
         }
-        else if (stmt instanceof ASTBreakStatement) {
-            result.append("break;\n");
+        else if (stmt instanceof ASTBreakOrContinueStatement) {
+            String s = ((ASTBreakOrContinueStatement) stmt).isBreak() ? "break" : "continue";
+            result.append(s).append(";\n");
         }
         else {
-            throw new UnsupportedOperationException("Cannot translate node of type " + stmt.getClass().getSimpleName());
+            throw new UnsupportedOperationException("Cannot translate node of type " + getSimpleName(stmt));
         }
         if (addNewline) {
             result.append('\n');
@@ -891,7 +924,8 @@ public class CSharpTranslator extends Translator {
                         translateStatement(decl, indent + 4, result);
                     }
                     else {
-                        throw new UnsupportedOperationException();
+                        String s = String.format("Cannot translate %s at %s", getSimpleName(decl), decl.getLocation());
+                        throw new UnsupportedOperationException(s);
                     }
                 }
             }
@@ -899,8 +933,7 @@ public class CSharpTranslator extends Translator {
                 addIndent(indent + 4, result);
                 result.append(String.format("public %s(Lexer tokenSource) : base(tokenSource) {}\n", name));
             }
-            addIndent(indent, result);
-            result.append("}\n");
+            closeBrace(indent, result);
             return result.toString();
         }
         finally {
@@ -914,17 +947,15 @@ public class CSharpTranslator extends Translator {
         result.append(") ");
     }
 
-    @Override  public void translateFormals(List<FormalParameter> formals, SymbolTable symbols, StringBuilder result) {
+    @Override
+    public void translateFormals(List<FormalParameter> formals, SymbolTable symbols, StringBuilder result) {
         translateFormals(transformFormals(formals), symbols, true, true, result);
     }
 
-    @Override public void translateImport(String javaName, StringBuilder result) {
-        String prefix = String.format("%s.", grammar.getAppSettings().getParserPackage());
-        if (!javaName.startsWith(prefix)) {
-            throw new UnsupportedOperationException();
-        }
-        javaName = javaName.substring(prefix.length());
-        List<String> parts = new ArrayList<>(Arrays.asList(javaName.split("\\.")));
+    @Override
+    public void translateImport(String javaName, StringBuilder result) {
+        String prefix = String.format("%s.", appSettings.getParserPackage());
+        List<String> parts = getImportParts(javaName, prefix);
         int n = parts.size();
         String aliasName = null;
         for (int i = 0; i < n; i++) {
@@ -932,7 +963,8 @@ public class CSharpTranslator extends Translator {
             if (s.endsWith("Parser")) {
                 if (i == (n - 1)) {
                     if (aliasName != null) {
-                        throw new UnsupportedOperationException();
+                        s = String.format("Unexpected alias %s", aliasName);
+                        throw new UnsupportedOperationException(s);
                     }
                     aliasName = s;
                 }
@@ -941,7 +973,8 @@ public class CSharpTranslator extends Translator {
             else if (s.endsWith("Lexer")) {
                 if (i == (n - 1)) {
                     if (aliasName != null) {
-                        throw new UnsupportedOperationException();
+                        s = String.format("Unexpected alias %s", aliasName);
+                        throw new UnsupportedOperationException(s);
                     }
                     aliasName = s;
                 }
@@ -957,10 +990,5 @@ public class CSharpTranslator extends Translator {
             result.append(aliasName).append(" = ");
         }
         result.append(prefix).append(s).append(";\n");
-    }
-
-    @Override public void translateEmptyBlock(int indent, StringBuilder result) {
-        addIndent(indent, result);
-        result.append("// empty code block\n");
     }
 }

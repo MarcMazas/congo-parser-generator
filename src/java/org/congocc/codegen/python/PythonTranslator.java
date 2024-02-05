@@ -18,7 +18,7 @@ public class PythonTranslator extends Translator {
         includeInitializers = true;
     }
 
-    @Override public String translateOperator(String operator) {
+    public String translateOperator(String operator) {
         String result = operator;
 
         switch (result) {
@@ -53,7 +53,7 @@ public class PythonTranslator extends Translator {
         String result = ident;
 
         if (specialPrefixes.isEmpty()) {
-            specialPrefixes.add(grammar.getAppSettings().generateIdentifierPrefix("tokenHook"));
+            specialPrefixes.add(appSettings.generateIdentifierPrefix("tokenHook"));
         }
         if (ident.equals("null")) {
             result = "None";
@@ -74,16 +74,23 @@ public class PythonTranslator extends Translator {
         else if (ident.equals("toString")) {
             result = "__str__";
         }
-        else if (Character.isLowerCase(ident.charAt(0)) && !isSpecialPrefix(ident) && !ident.equals("thisProduction")) {
+        else if (ident.startsWith(appSettings.getNodePackage().concat("."))) {
+            int prefixLength = appSettings.getNodePackage().length() + 1;
+            result = ident.substring(prefixLength);
+        }
+        else if (Character.isLowerCase(ident.charAt(0)) && !isSpecialPrefix(ident)) {
             result = camelToSnake(result);
         }
-        else if (ident.equals("LEXER_CLASS")) {
+        else if (ident.equals("LEXER_CLASS") || (ident.equals(appSettings.getLexerClassName()))) {
             result = "Lexer";
         }
-        else if (ident.equals("PARSER_CLASS")) {
+        else if (ident.equals("PARSER_CLASS") || (ident.equals(appSettings.getParserClassName()))) {
             result = "Parser";
         }
-        else if (ident.equals("BASE_TOKEN_CLASS")) {
+        else if (ident.equals("THIS_PRODUCTION")) {
+            result = "this_production";
+        }
+        else if (ident.equals("BASE_TOKEN_CLASS") || (ident.equals(appSettings.getBaseTokenClassName()))) {
             result = "Token";
         }
         else if (ident.startsWith("NODE_PACKAGE.")) {
@@ -96,7 +103,7 @@ public class PythonTranslator extends Translator {
         return result;
     }
 
-    @Override public String translateGetter(String getterName) {
+    public String translateGetter(String getterName) {
         if (getterName.startsWith("is")) {
             return translateIdentifier(getterName, TranslationContext.METHOD);
         }
@@ -108,22 +115,23 @@ public class PythonTranslator extends Translator {
         return translateIdentifier(result, TranslationContext.METHOD);
     }
 
-    @Override protected boolean needsParentheses(ASTExpression expr) {
+    @Override
+    protected boolean needsParentheses(ASTExpression expr) {
         boolean result = true;
 
         if (expr instanceof ASTPrimaryExpression ||
-            expr instanceof ASTInstanceofExpression ||
-            expr instanceof ASTUnaryExpression) {
+                expr instanceof ASTInstanceofExpression ||
+                expr instanceof ASTUnaryExpression) {
             result = false;
         }
         else if (expr instanceof ASTBinaryExpression) {
             String op = ((ASTBinaryExpression) expr).getOp();
-            if (op.equals(".") || op.equals("=")) {
+            if (op.equals(".") || op.equals("=") || (op.endsWith("=") && ("+-*/|&".indexOf(op.charAt(0)) >= 0))) {
                 result = false;
             }
             // Operator precedence might be different, so generally prefer to parenthesize
             // else {
-                // result = (expr.getParent() != null);
+            //     result = (expr.getParent() != null);
             // }
         }
         return result;
@@ -268,11 +276,12 @@ public class PythonTranslator extends Translator {
             result.append("self");
         }
         else {
-            throw new UnsupportedOperationException();
+            String s = String.format("Cannot render receiver %s", getSimpleName(expr));
+            throw new UnsupportedOperationException(s);
         }
     }
 
-    protected static Set<String> leaveAsMethods = new HashSet<>(Arrays.asList("getIndents", "isConstant"));
+    protected static final Set<String> leaveAsMethods = new HashSet<>(Arrays.asList("getIndents", "isConstant"));
 
     protected boolean treatAsProperty(String methodName) {
         return isGetter(methodName) || methodName.equals("previousCachedToken");
@@ -304,6 +313,15 @@ public class PythonTranslator extends Translator {
             result.append("str(");
             renderReceiver(receiver, result);
             result.append(')');
+        }
+        else if (methodName.equals("getClass") && (nargs == 0)) {
+            result.append("type(");
+            renderReceiver(receiver, result);
+            result.append(')');
+        }
+        else if (methodName.equals("getSimpleName") && (nargs == 0) && belongsToClass(expr)) {
+            renderReceiver(receiver, result);
+            result.append(".__name__");
         }
         else if ((methodName.equals("size") || methodName.equals("length")) && (nargs == 0)) {
             result.append("len(");
@@ -487,12 +505,9 @@ public class PythonTranslator extends Translator {
             }
             addNewline = true;
         }
-        else if (stmt instanceof ASTBreakStatement) {
-            result.append("break");
-            addNewline = true;
-        }
-        else if (stmt instanceof ASTContinueStatement) {
-            result.append("continue");
+        else if (stmt instanceof ASTBreakOrContinueStatement) {
+            String s = ((ASTBreakOrContinueStatement) stmt).isBreak() ? "break" : "continue";
+            result.append(s);
             addNewline = true;
         }
         else if (stmt instanceof ASTIfStatement) {
@@ -634,7 +649,14 @@ public class PythonTranslator extends Translator {
                 translateFormals(formals, symbols, false, false, result);
             }
             result.append("):\n");
-            internalTranslateStatement(decl.getStatements(), indent + 4, result);
+            ASTStatementList statements = decl.getStatements();
+            if (statements != null) {
+                internalTranslateStatement(statements, indent + 4, result);
+            }
+            else {
+                addIndent(indent + 4, result);
+                result.append("pass\n");
+            }
             result.append('\n');
             popSymbols();
         }
@@ -718,7 +740,8 @@ public class PythonTranslator extends Translator {
             }
         }
         else {
-            throw new UnsupportedOperationException();
+            String s = String.format("Cannot translate statement %s", getSimpleName(stmt));
+            throw new UnsupportedOperationException(s);
         }
         if (addNewline) {
             result.append('\n');
@@ -763,9 +786,8 @@ public class PythonTranslator extends Translator {
             parser.InvocationArguments();
             Node node = parser.rootNode();
             StringBuilder result = new StringBuilder();
-            int n = node.size();
-            for (int i = 0; i < n; i++) {
-                Node child = node.get(i);
+
+            for (Node child : node) {
                 if (child instanceof Expression) {
                     ASTExpression expr = (ASTExpression) transformTree(child);
                     internalTranslateExpression(expr, TranslationContext.UNKNOWN, result);
@@ -780,7 +802,8 @@ public class PythonTranslator extends Translator {
         }
     }
 
-    @Override  public String translateInjectedClass(CodeInjector injector, String name) {
+    @Override
+    public String translateInjectedClass(CodeInjector injector, String name) {
         StringBuilder result = new StringBuilder();
         String qualifiedName = String.format("%s.%s", appSettings.getNodePackage(), name);
         List<String> nameList = injector.getParentClasses(qualifiedName);
@@ -832,28 +855,36 @@ public class PythonTranslator extends Translator {
                 if (decl instanceof MethodDeclaration) {
                     translateStatement(decl, 4, result);
                 }
+                else if (decl instanceof Initializer) {
+                    SymbolTable symbols = new SymbolTable();
+                    pushSymbols(symbols);
+                    for (Node stmt : decl.descendantsOfType(CodeBlock.class)) {
+                        translateStatement(stmt, 8, result);
+                    }
+                    popSymbols();
+                }
                 else {
-                    throw new UnsupportedOperationException();
+                    String s = String.format("Cannot translate %s at %s", getSimpleName(decl), decl.getLocation());
+                    throw new UnsupportedOperationException(s);
                 }
             }
         }
         return result.toString();
     }
 
-    @Override protected void translateCast(ASTTypeExpression cast, StringBuilder result) {
+    @Override
+    protected void translateCast(ASTTypeExpression cast, StringBuilder result) {
     }
 
-    @Override  public void translateFormals(List<FormalParameter> formals, SymbolTable symbols, StringBuilder result) {
+    @Override
+    public void translateFormals(List<FormalParameter> formals, SymbolTable symbols, StringBuilder result) {
         translateFormals(transformFormals(formals), symbols, false, false, result);
     }
 
-    @Override public void translateImport(String javaName, StringBuilder result) {
-        String prefix = String.format("%s.", grammar.getAppSettings().getParserPackage());
-        if (!javaName.startsWith(prefix)) {
-            throw new UnsupportedOperationException();
-        }
-        javaName = javaName.substring(prefix.length());
-        List<String> parts = new ArrayList<>(Arrays.asList(javaName.split("\\.")));
+    @Override
+    public void translateImport(String javaName, StringBuilder result) {
+        String prefix = String.format("%s.", appSettings.getParserPackage());
+        List<String> parts = getImportParts(javaName, prefix);
         String from = null;
         String s = parts.get(0);
         if (Character.isLowerCase(s.charAt(0))) {
@@ -862,7 +893,8 @@ public class PythonTranslator extends Translator {
         }
         int n = parts.size();
         if ((n == 0) || (n > 2)) {
-            throw new UnsupportedOperationException();
+            s = String.format("Cannot translate import %s with %d parts", javaName, n);
+            throw new UnsupportedOperationException(s);
         }
         s = parts.get(0);
         String suffix = null;
@@ -904,10 +936,5 @@ public class PythonTranslator extends Translator {
             }
         }
         super.endClass(name, fields, result);
-    }
-
-    @Override public void translateEmptyBlock(int indent, StringBuilder result) {
-        addIndent(indent, result);
-        result.append("pass  # empty code block\n");
     }
 }

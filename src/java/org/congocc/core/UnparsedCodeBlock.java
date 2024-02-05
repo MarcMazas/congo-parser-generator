@@ -4,7 +4,6 @@ import org.congocc.parser.Node;
 import org.congocc.parser.ParseException;
 import static org.congocc.parser.Token.TokenType.UNPARSED_CONTENT;
 import org.congocc.parser.csharp.CSParser;
-import org.congocc.parser.python.PythonParser;
 
 public class UnparsedCodeBlock extends EmptyExpansion {
 
@@ -16,10 +15,10 @@ public class UnparsedCodeBlock extends EmptyExpansion {
     }
 
     private boolean expanded;
-    private Type type;
+    // private Type type;
     private ParseException parseException;
 
-    public void setType(Type type) {this.type = type;}
+    // public void setType(Type type) {this.type = type;}
 
     private Node parseContent(CharSequence input) {
         return null;

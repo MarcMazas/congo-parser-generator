@@ -1,28 +1,32 @@
 package org.congocc.codegen;
 
 import java.util.*;
+import java.util.function.Function;
 
 import org.congocc.app.*;
 import org.congocc.core.*;
-import org.congocc.parser.*;
+import org.congocc.parser.Node;
+import org.congocc.parser.CongoCCParser;
 import org.congocc.parser.tree.*;
+
 
 /**
  * Class to hold various methods and variables
  * that are exposed to the template layer
  */
+@SuppressWarnings("unused")
 public class TemplateGlobals {
 
-    private Grammar grammar;
-    private LexerData lexerData;
-    private AppSettings appSettings;
+    private final Grammar grammar;
+    // private final LexerData lexerData;
+    private final AppSettings appSettings;
     private Translator translator;
 
-    private List<String> nodeVariableNameStack = new ArrayList<>();
+    private final List<String> nodeVariableNameStack = new ArrayList<>();
 
     public TemplateGlobals(Grammar grammar) {
         this.grammar = grammar;
-        this.lexerData = grammar.getLexerData();
+        // this.lexerData = grammar.getLexerData();
         this.appSettings = grammar.getAppSettings();
     }
 
@@ -64,7 +68,7 @@ public class TemplateGlobals {
                     retval.append("\\\"");
                     continue;
                 case '\'':
-                    retval.append("\\\'");
+                    retval.append("\\'");
                     continue;
                 case '\\':
                     retval.append("\\\\");
@@ -72,11 +76,10 @@ public class TemplateGlobals {
                 default:
                     if (Character.isISOControl(ch)) {
                         String s = "0000" + java.lang.Integer.toString(ch, 16);
-                        retval.append("\\u" + s.substring(s.length() - 4, s.length()));
+                        retval.append("\\u").append(s.substring(s.length() - 4));
                     } else {
                         retval.appendCodePoint(ch);
                     }
-                    continue;
             }
         }
         return retval.toString();
@@ -88,60 +91,34 @@ public class TemplateGlobals {
     }
 
     /**
-     * @param ch the code point. If it is not ASCII, we just display the integer in
-     *           hex.
-     * @return a String to use in generated Java code. Rather than display the
-     *         integer 97, we display 'a',
-     *         for example.
+     * @return a function that coverts a character to a displayable string
+     *         in generated Java code. Rather than display the
+     *         integer 97, we display 'a', for example.
      */
-
-    public String displayChar(int ch) {
-        String s;
-
-        if (ch == '\'')
-            return "\'\\'\'";
-        if (ch == '\\')
-            return "\'\\\\\'";
-        if (ch == '\t')
-            return "\'\\t\'";
-        if (ch == '\r')
-            return "\'\\r\'";
-        if (ch == '\n')
-            return "\'\\n\'";
-        if (ch == '\f')
-            return "\'\\f\'";
-        if (ch == ' ')
-            return "\' \'";
-        if (ch < 128 && !Character.isWhitespace(ch) && !Character.isISOControl(ch))
-            return "'" + (char) ch + "'";
-        s = "0x" + Integer.toHexString(ch);
-        if (appSettings.getCodeLang().equals("python")) {
-            s = String.format("as_chr(%s)", s);
-        }
-        return s;
-    }
-
-    /**
-     * This method is only here to help with debugging NFA state-related logic in
-     * templates.
-     * Sometimes, you want to see ASCII rather than code points.
-     *
-     * @param char_array a list of code points.
-     * @return a String to use in generated template code.
-     */
-    public String displayChars(int[] char_array) {
-        StringBuilder sb = new StringBuilder();
-        int n = char_array.length;
-
-        sb.append('[');
-        for (int i = 0; i < n; i++) {
-            sb.append(displayChar(char_array[i]));
-            if (i < (n - 1)) {
-                sb.append(", ");
+    public Function<Integer, String> getDisplayChar() {
+        return ch->{
+            if (ch == '\'')
+                return "'\\''";
+            if (ch == '\\')
+                return "'\\\\'";
+            if (ch == '\t')
+                return "'\\t'";
+            if (ch == '\r')
+                return "'\\r'";
+            if (ch == '\n')
+                return "'\\n'";
+            if (ch == '\f')
+                return "'\\f'";
+            if (ch == ' ')
+                return "' '";
+            if (ch < 128 && !Character.isWhitespace(ch) && !Character.isISOControl(ch))
+                return "'" + (char) ch.intValue() + "'";
+            String s = "0x" + Integer.toHexString(ch);
+            if (appSettings.getCodeLang().equals("python")) {
+                s = String.format("as_chr(%s)", s);
             }
-        }
-        sb.append(']');
-        return sb.toString();
+            return s;
+        };
     }
 
     // The following methods added for supporting generation in languages other than
@@ -151,7 +128,7 @@ public class TemplateGlobals {
         Map<String, String> superClassMap = new HashMap<>();
         // List<String> classes = new ArrayList<>();
 
-        for (RegularExpression re : lexerData.getOrderedNamedTokens()) {
+        for (RegularExpression re : grammar.getLexerData().getOrderedNamedTokens()) {
             if (re.isPrivate())
                 continue;
             String tokenClassName = re.getGeneratedClassName();
@@ -205,6 +182,7 @@ public class TemplateGlobals {
     }
 
     // Used in templates for side effects, hence returning empty string
+    @SuppressWarnings("SameReturnValue")
     public String startProduction() {
         Translator.SymbolTable symbols = new Translator.SymbolTable();
         translator.pushSymbols(symbols);
@@ -212,6 +190,7 @@ public class TemplateGlobals {
     }
 
     // Used in templates for side effects, hence returning empty string
+    @SuppressWarnings("SameReturnValue")
     public String endProduction() {
         translator.popSymbols();
         translator.clearParameterNames();
@@ -255,8 +234,7 @@ public class TemplateGlobals {
         if (node instanceof Statement) {
             translator.translateStatement(node, indent, result);
         } else {
-            for (int i = 0; i < node.size(); i++) {
-                Node child = node.get(i);
+            for (Node child : node) {
                 if (child instanceof Delimiter) {
                     continue; // could put in more checks here
                 }
@@ -265,26 +243,16 @@ public class TemplateGlobals {
         }
     }
 
-    public String translateCodeBlock(String cb, int indent) {
+    public String translateCodeBlock(Node javaCodeBlock, int indent) {
+        if (javaCodeBlock == null) return "";
         StringBuilder result = new StringBuilder();
-        if (cb != null) {
-            cb = cb.trim();
-            if (cb.length() == 0) {
-                translator.translateEmptyBlock(indent, result);
-            } else {
-                String block = "{" + cb + "}";
-                CongoCCParser parser = new CongoCCParser(block);
-                parser.Block();
-                Node node = parser.rootNode();
-                Translator.SymbolTable syms = new Translator.SymbolTable();
-                translator.pushSymbols(syms);
-                translateStatements(node, indent, result);
-                translator.popSymbols();
-            }
-        }
+        Translator.SymbolTable syms = new Translator.SymbolTable();
+        translator.pushSymbols(syms);
+        translateStatements(javaCodeBlock, indent, result);
+        translator.popSymbols();
         return result.toString();
     }
-
+    
     // used in templates
     public String translateNonterminalArgs(String args) {
         // The args are passed through as a string, but need to be translated according
@@ -324,8 +292,7 @@ public class TemplateGlobals {
                     // ConstructorDeclarations
                     boolean process = (fields == (decl instanceof FieldDeclaration || decl instanceof Initializer));
                     if (process) {
-                        if (decl instanceof FieldDeclaration || decl instanceof CodeBlock
-                                || decl instanceof Initializer) {
+                        if (decl instanceof FieldDeclaration || decl instanceof CodeBlock) {
                             if ((decl instanceof Initializer) && !initializers) {
                                 continue;
                             }
@@ -334,7 +301,8 @@ public class TemplateGlobals {
                                 decl instanceof EnumDeclaration || decl instanceof ClassDeclaration) {
                             translator.translateStatement(decl, methodIndent, result);
                         } else {
-                            throw new UnsupportedOperationException();
+                            String s = String.format("Unable to translate %s at %s", Translator.getSimpleName(decl), decl.getLocation());
+                            throw new UnsupportedOperationException(s);
                         }
                     }
                 }
@@ -377,23 +345,28 @@ public class TemplateGlobals {
                     for (Node child : decl.children()) {
                         if (child instanceof Identifier) {
                             names.add(((Identifier) child).toString());
-                        } else if (child instanceof VariableDeclarator) {
+                        }
+                        else if (child instanceof VariableDeclarator) {
                             Identifier ident = child.firstDescendantOfType(Identifier.class);
                             if (ident == null) {
-                                throw new UnsupportedOperationException();
+                                String s = String.format("Identifier not found for %s at %s", Translator.getSimpleName(child), child.getLocation());
+                                throw new UnsupportedOperationException(s);
                             }
                             names.add(ident.toString());
                         }
                     }
                     if (names.size() == 0) {
-                        throw new UnsupportedOperationException();
+                        String s = String.format("No names found for %s at %s", Translator.getSimpleName(decl), decl.getLocation());
+                        throw new UnsupportedOperationException(s);
                     }
                     for (String name : names) {
                         result.add(translator.translateIdentifier(name,
                                 Translator.TranslationContext.VARIABLE));
                     }
-                } else {
-                    throw new UnsupportedOperationException();
+                }
+                else {
+                    String s = String.format("Unable to process %s at %s", Translator.getSimpleName(decl), decl.getLocation());
+                    throw new UnsupportedOperationException(s);
                 }
             }
         }

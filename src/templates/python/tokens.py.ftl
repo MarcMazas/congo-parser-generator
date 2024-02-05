@@ -8,7 +8,7 @@ __all__ = [
     '${settings.baseNodeClassName}',
     'TokenType',
     'Token',
-[#var tokenSubClassInfo = globals.tokenSubClassInfo()]
+[#var tokenSubClassInfo = globals::tokenSubClassInfo()]
 [#list tokenSubClassInfo.sortedNames as name]
     '${name}',
 [/#list]
@@ -21,7 +21,7 @@ __all__ = [
 
 @unique
 class TokenType(Enum):
- [#list grammar.lexerData.regularExpressions as regexp]
+ [#list lexerData.regularExpressions as regexp]
     ${regexp.label} = auto()
  [/#list]
  [#list settings.extraTokenNames as t]
@@ -31,7 +31,7 @@ class TokenType(Enum):
 
 @unique
 class LexicalState(Enum):
-  [#list grammar.lexerData.lexicalStates as lexicalState]
+  [#list lexerData.lexicalStates as lexicalState]
     ${lexicalState.name} = auto()
   [/#list]
 
@@ -106,26 +106,42 @@ class ${settings.baseNodeClassName}:
         ts = self.token_source
         return "input" if not ts else ts.input_source
 
-    def add_child(self, node, index=-1):
+    def add(self, node, index=-1):
         if index < 0:
             self.children.append(node)
         else:
             self.children.insert(index, node)
         node.parent = self
 
-    def remove_child(self, index):
+    def remove(self, index):
         assert index >= 0
         self.children.pop(index)
 
-[#if include_unwanted!false]
+    def __delitem__(self, index):
+        n = len(self.children)
+        if index < 0:
+            index = n - index
+        assert 0 <= index < n
+        self.remove(index)
+
+    def truncate(self, amount):
+        new_end_offset = max(self.begin_offset, self.end_offset - amount)
+        self.end_offset = new_end_offset
+
     def set_child(self, node, index):
         self.children[index] = node
         node.parent = self
 
+    def __setitem__(self, index, node):
+        n = len(self.children)
+        if index < 0:
+            index = n - index
+        assert 0 <= index < n
+        self.set_child(node, index)
+
     def clear_children(self):
         self.children.clear()
 
-[/#if]
     @property
     def child_count(self):
         return len(self.children)
@@ -133,6 +149,13 @@ class ${settings.baseNodeClassName}:
     def get_child(self, index):
         assert index >= 0
         return self.children[index]
+
+    def __getitem__(self, index):
+        n = len(self.children)
+        if index < 0:
+            index = n - index
+        assert 0 <= index < n
+        return self.get_child(index)
 
     @property
     def first_child(self):
@@ -270,7 +293,7 @@ class Token[#if settings.treeBuildingEnabled](${settings.baseNodeClassName})[/#i
 [/#if]
         'previous_token',
         'next_token',
-[#var injectedFields = globals.injectedTokenFieldNames()]
+[#var injectedFields = globals::injectedTokenFieldNames()]
 [#if injectedFields?size > 0]
         # injected fields
 [#list injectedFields as fieldName]
@@ -298,7 +321,7 @@ class Token[#if settings.treeBuildingEnabled](${settings.baseNodeClassName})[/#i
         self.end_offset = end_offset
         self.token_source = token_source
 [/#if]
-${globals.translateTokenInjections(true)}
+${globals::translateTokenInjections(true)}
         self.type = type
         self.previous_token = None
         self.next_token = None
@@ -503,7 +526,7 @@ ${globals.translateTokenInjections(true)}
         return '%s:%s:%s' % (self.input_source, self.begin_line,
                              self.begin_column)
 
-${globals.translateTokenInjections(false)}
+${globals::translateTokenInjections(false)}
 
 class InvalidToken(Token):
     def __init__(self, token_source, begin_offset, end_offset):
@@ -529,8 +552,8 @@ class ${name}(${tokenSubClassInfo.tokenClassMap[name]}): pass
 class ${cn}(Token):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-${globals.translateTokenSubclassInjections(cn, true)}
-${globals.translateTokenSubclassInjections(cn, false)}
+${globals::translateTokenSubclassInjections(cn, true)}
+${globals::translateTokenSubclassInjections(cn, false)}
   [/#list]
 [/#if]
 

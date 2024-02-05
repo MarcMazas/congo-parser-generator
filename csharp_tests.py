@@ -310,11 +310,7 @@ def main():
         langs = options.langs.split(',')
         for lang, gdata in languages.items():
             if options.langs == 'all' or lang in langs:
-                # For now, skip lua tests unless invoked explicitly
-                # (as they don't work yet)
-                if options.langs == 'all' and lang == 'lua':
-                    continue
-                workdir = tempfile.mkdtemp(prefix='congocc-csharp-test-')
+                workdir = tempfile.mkdtemp(prefix='congocc-test-csharp-%s-' % lang)
                 workdirs.append(workdir)
                 gdata.workdir = workdir
                 test_grammar(gdata, options)

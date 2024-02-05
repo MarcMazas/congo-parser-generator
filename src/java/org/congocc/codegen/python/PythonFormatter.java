@@ -1,10 +1,7 @@
 package org.congocc.codegen.python;
 
-import java.util.EnumSet;
 import org.congocc.parser.Node;
 import org.congocc.parser.python.PythonToken;
-import org.congocc.parser.python.PythonToken.TokenType;
-import static org.congocc.parser.python.PythonToken.TokenType.*;
 import org.congocc.parser.python.ast.*;
 
 public class PythonFormatter extends Node.Visitor {
@@ -22,11 +19,19 @@ public class PythonFormatter extends Node.Visitor {
 //                                                              WHILE, WITH);
 
 
+    protected String indent(String current, String indent, int level) {
+        StringBuilder result = new StringBuilder();
+
+        result.append(current);
+        for (int i = 0; i < level; i++) {
+            result.append(indent);
+        }
+        return result.toString();
+    }
+
     public String format(Node code, int indentLevel) {
         buffer = new StringBuilder();
-        for (int i = 0; i < indentLevel; i++) {
-            currentIndent += defaultIndent;
-        }
+        currentIndent = indent(currentIndent, defaultIndent, indentLevel);
         visit(code);
         return buffer.toString();
     }
